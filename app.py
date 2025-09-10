@@ -132,5 +132,71 @@ def cdn(relpath):
     rv.headers["Access-Control-Allow-Origin"] = ",".join(ALLOWED_ORIGINS) if ALLOWED_ORIGINS != ["*"] else "*"
     return rv
 
+def _to_rel_url(url_or_rel: str) -> str:
+    """
+    Aceita tanto a URL completa (https://storage.../cdn/...) quanto o rel_url (/cdn/...).
+    Retorna SEMPRE o rel_url iniciado por /cdn/...
+    """
+    s = url_or_rel.strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        # remove PUBLIC_BASE_URL do começo
+        base = PUBLIC_BASE_URL.rstrip("/")
+        if s.startswith(base):
+            s = s[len(base):]
+    if not s.startswith("/cdn/"):
+        raise ValueError("path deve começar com /cdn/")
+    return s
+
+def _rel_to_full(rel_url: str) -> str:
+    rel = rel_url.lstrip("/")
+    full = os.path.join(MEDIA_ROOT, os.path.normpath(rel))
+    # trava em MEDIA_ROOT
+    full_abs = os.path.abspath(full)
+    root_abs = os.path.abspath(MEDIA_ROOT)
+    if not full_abs.startswith(root_abs + os.sep):
+        raise PermissionError("path traversal")
+    return full_abs
+
+@app.route("/admin/media/delete", methods=["POST", "DELETE"])
+def media_delete():
+    # Auth simples reaproveitando o token do upload
+    if not _auth_ok(request):
+        return jsonify(ok=False, error="unauthorized"), 401
+
+    # Pode mandar JSON { "url": "..."} OU { "rel_url": "..."}
+    data = request.get_json(silent=True) or {}
+    url_or_rel = data.get("url") or data.get("rel_url")
+    if not url_or_rel:
+        return jsonify(ok=False, error="missing url or rel_url"), 400
+
+    try:
+        rel_url = _to_rel_url(url_or_rel)
+        full = _rel_to_full(rel_url)
+
+        if os.path.isfile(full):
+            os.remove(full)
+            # limpa diretórios vazios acima (opcional)
+            try:
+                parent = os.path.dirname(full)
+                for _ in range(3):  # /uploads/AAAA/MM
+                    if os.path.isdir(parent) and not os.listdir(parent):
+                        os.rmdir(parent)
+                        parent = os.path.dirname(parent)
+                    else:
+                        break
+            except Exception:
+                pass
+
+            return jsonify(ok=True, deleted=rel_url)
+        else:
+            return jsonify(ok=False, error="file not found", rel_url=rel_url), 404
+
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except PermissionError:
+        return jsonify(ok=False, error="forbidden path"), 403
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
