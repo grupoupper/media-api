@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  media_api:
+    build: .
+    container_name: media-api
+    env_file: .env
+    ports:
+      - "8082:8082"
+    volumes:
+      # Monte a mesma pasta que o File Browser usa
+      - /srv/media:/app/media
+    restart: unless-stopped
