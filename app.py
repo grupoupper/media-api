@@ -165,38 +165,38 @@ def admin_ping():
 
 @app.route("/admin/media/delete", methods=["POST", "DELETE", "GET"])
 def media_delete():
-    # Auth (mesmo do upload)
     if not _auth_ok(request):
         return jsonify(ok=False, error="unauthorized"), 401
 
-    # Tenta JSON, depois form, depois querystring
     data = request.get_json(silent=True) or {}
     if not data:
-        # aceita multipart/form-data
-        if request.form:
-            data = request.form.to_dict()
-        elif request.args:
-            data = request.args.to_dict()
-        else:
-            data = {}
+        data = request.form.to_dict() or request.args.to_dict() or {}
 
     url_or_rel = (data.get("url") or data.get("rel_url") or "").strip()
     if not url_or_rel:
         return jsonify(ok=False, error="missing url or rel_url", received=data), 400
 
     try:
-        # aceita URL completa também
         s = url_or_rel
+        # aceita URL completa
         if s.startswith("http://") or s.startswith("https://"):
             base = PUBLIC_BASE_URL.rstrip("/")
             if s.startswith(base):
                 s = s[len(base):]
-        if not s.startswith("/cdn/"):
-            return jsonify(ok=False, error="path must start with /cdn/", got=s), 400
 
-        # normaliza e evita traversal
-        rel = s.lstrip("/")
-        full = os.path.join(MEDIA_ROOT, os.path.normpath(rel))
+        # aceita "/cdn/uploads/..." ou "/uploads/..."
+        if s.startswith("/cdn/"):
+            # remove o prefixo "/cdn/"
+            s = s[len("/cdn/"):]
+        else:
+            s = s.lstrip("/")
+
+        # agora s deve começar por "uploads/AAAA/MM/arquivo.ext"
+        if not s.startswith("uploads/"):
+            return jsonify(ok=False, error="path must start with uploads/", got=s), 400
+
+        # normaliza e trava em MEDIA_ROOT
+        full = os.path.join(MEDIA_ROOT, os.path.normpath(s))
         full_abs = os.path.abspath(full)
         root_abs = os.path.abspath(MEDIA_ROOT)
         if not full_abs.startswith(root_abs + os.sep):
@@ -204,7 +204,7 @@ def media_delete():
 
         if os.path.isfile(full_abs):
             os.remove(full_abs)
-            # limpa diretórios vazios (uploads/AAAA/MM)
+            # limpa diretórios vazios
             try:
                 parent = os.path.dirname(full_abs)
                 for _ in range(3):
@@ -216,9 +216,9 @@ def media_delete():
             except Exception:
                 pass
 
-            return jsonify(ok=True, deleted="/" + rel)
+            return jsonify(ok=True, deleted="/cdn/" + s)
         else:
-            return jsonify(ok=False, error="file not found", rel_url="/" + rel), 404
+            return jsonify(ok=False, error="file not found", rel_url="/cdn/" + s), 404
 
     except Exception as e:
         return jsonify(ok=False, error=str(e)), 500
