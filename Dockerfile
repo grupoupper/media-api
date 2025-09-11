@@ -1,8 +1,5 @@
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
 WORKDIR /app
 
 COPY requirements.txt .
@@ -10,9 +7,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
-# Pasta de mídia (montada por volume em runtime)
-RUN mkdir -p /app/media && adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app
-USER appuser
+# garante a pasta base (dentro do container) e permite escrita
+RUN mkdir -p /app/media && chmod -R 777 /app/media
 
-EXPOSE 8080
+# expõe 80 (seu app já está subindo em 80)
+EXPOSE 80
+ENV PORT=80
+
 CMD ["python", "app.py"]
